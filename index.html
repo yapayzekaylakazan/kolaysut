@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>KolaySüt — Çiftlik Fizibilite Yönetimi</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://js.hcaptcha.com/1/api.js" async defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 :root{
@@ -166,14 +167,16 @@ a{color:inherit;text-decoration:none}
     <div id="form-giris">
       <div class="field"><label>E-posta</label><input type="email" id="login-email" placeholder="ornek@email.com"></div>
       <div class="field"><label>Şifre</label><input type="password" id="login-pass" placeholder="••••••••"></div>
-      <button class="btn-primary" onclick="doLogin()">Giriş Yap</button>
+      <div class="h-captcha" data-sitekey="dd22c300-011e-426a-af1a-1790ba5cabfa" data-callback="onLoginCaptcha" style="margin-bottom:1rem"></div>
+      <button class="btn-primary" id="btn-login" onclick="doLogin()" disabled>Giriş Yap</button>
     </div>
     <div id="form-kayit" style="display:none">
       <div class="field"><label>Adınız</label><input type="text" id="reg-name" placeholder="Ahmet Yılmaz"></div>
       <div class="field"><label>E-posta</label><input type="email" id="reg-email" placeholder="ornek@email.com"></div>
       <div class="field"><label>Şifre</label><input type="password" id="reg-pass" placeholder="En az 6 karakter"></div>
       <div class="field"><label>Çiftlik Adı</label><input type="text" id="reg-ciftlik" placeholder="Yılmaz Çiftliği"></div>
-      <button class="btn-primary" onclick="doRegister()">Hesap Oluştur</button>
+      <div class="h-captcha" data-sitekey="dd22c300-011e-426a-af1a-1790ba5cabfa" data-callback="onRegCaptcha" style="margin-bottom:1rem"></div>
+      <button class="btn-primary" id="btn-register" onclick="doRegister()" disabled>Hesap Oluştur</button>
     </div>
   </div>
 </div>
@@ -614,10 +617,26 @@ function showAuthErr(msg) {
   el.textContent = msg; el.style.display = 'block';
 }
 
+let captchaTokenLogin = null;
+let captchaTokenReg = null;
+
+function onLoginCaptcha(token) {
+  captchaTokenLogin = token;
+  document.getElementById('btn-login').disabled = false;
+}
+function onRegCaptcha(token) {
+  captchaTokenReg = token;
+  document.getElementById('btn-register').disabled = false;
+}
+
 async function doLogin() {
   const email = document.getElementById('login-email').value;
   const pass = document.getElementById('login-pass').value;
-  const {data, error} = await sb.auth.signInWithPassword({email, password: pass});
+  if (!captchaTokenLogin) return showAuthErr('Lütfen captcha doğrulamasını tamamlayın.');
+  const {data, error} = await sb.auth.signInWithPassword({email, password: pass, options:{captchaToken: captchaTokenLogin}});
+  captchaTokenLogin = null;
+  if (window.hcaptcha) window.hcaptcha.reset();
+  document.getElementById('btn-login').disabled = true;
   if (error) return showAuthErr(error.message);
   curUser = data.user;
   await initApp();
@@ -629,10 +648,13 @@ async function doRegister() {
   const pass = document.getElementById('reg-pass').value;
   const ciftlikAdi = document.getElementById('reg-ciftlik').value;
   if (!ciftlikAdi) return showAuthErr('Çiftlik adı gereklidir.');
-  const {data, error} = await sb.auth.signUp({email, password: pass, options:{data:{full_name: name}}});
+  if (!captchaTokenReg) return showAuthErr('Lütfen captcha doğrulamasını tamamlayın.');
+  const {data, error} = await sb.auth.signUp({email, password: pass, options:{data:{full_name: name}, captchaToken: captchaTokenReg}});
+  captchaTokenReg = null;
+  if (window.hcaptcha) window.hcaptcha.reset();
+  document.getElementById('btn-register').disabled = true;
   if (error) return showAuthErr(error.message);
   curUser = data.user;
-  // İlk çiftliği oluştur
   const {data: cf} = await sb.from('kolaysut_ciftlikler').insert({user_id: curUser.id, ciftlik_adi: ciftlikAdi, sahip_adi: name}).select().single();
   if (cf) {
     await sb.from('kolaysut_senaryolar').insert({ciftlik_id: cf.id, user_id: curUser.id, senaryo_adi: 'Baz Senaryo', is_aktif: true});
